@@ -12,7 +12,7 @@ import torch.nn as nn
 import numpy as np
 
 from config import (
-    GIA_EVAL_INTERVAL, GIA_OPT_STEPS, GIA_LR, DEVICE, NUM_CLASSES, GIA_TV_WEIGH
+    GIA_EVAL_INTERVAL, GIA_OPT_STEPS, GIA_LR, DEVICE, NUM_CLASSES, GIA_TV_WEIGHT
 )
 from models import clone_model
 from defenses import apply_client_level_defense_transform
