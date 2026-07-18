@@ -12,10 +12,30 @@ import torch.nn as nn
 import numpy as np
 
 from config import (
-    GIA_EVAL_INTERVAL, GIA_OPT_STEPS, GIA_LR, DEVICE, NUM_CLASSES
+    GIA_EVAL_INTERVAL, GIA_OPT_STEPS, GIA_LR, DEVICE, NUM_CLASSES, GIA_TV_WEIGH
 )
 from models import clone_model
 from defenses import apply_client_level_defense_transform
+from data_utils import CIFAR10_MEAN, CIFAR10_STD
+
+# Valid pixel range in NORMALISED space: [0,1] raw pixel maps to
+# [(0-mean)/std, (1-mean)/std] per channel. Clamping the dummy image to this
+# box after every optimiser step keeps the search inside physically-possible
+# images instead of wandering into normalised values no real photo can reach
+# — a standard stabiliser for gradient-inversion attacks.
+_CHANNEL_LOW = torch.tensor(
+    [(0.0 - m) / s for m, s in zip(CIFAR10_MEAN, CIFAR10_STD)]
+).view(1, 3, 1, 1)
+_CHANNEL_HIGH = torch.tensor(
+    [(1.0 - m) / s for m, s in zip(CIFAR10_MEAN, CIFAR10_STD)]
+).view(1, 3, 1, 1)
+
+
+def _total_variation(img: torch.Tensor) -> torch.Tensor:
+    """Anisotropic TV norm — mean absolute difference between adjacent pixels."""
+    dh = (img[:, :, 1:, :] - img[:, :, :-1, :]).abs().mean()
+    dw = (img[:, :, :, 1:] - img[:, :, :, :-1]).abs().mean()
+    return dh + dw
 
 
 def _compute_gradient_with_grad(
@@ -67,9 +87,12 @@ def dlg_reconstruct(
     true_label: torch.Tensor,
     num_steps: int = GIA_OPT_STEPS,
     lr: float = GIA_LR,
+    tv_weight: float = GIA_TV_WEIGHT,
     device: torch.device = DEVICE,
 ) -> Tuple[torch.Tensor, float]:
     true_gradient = true_gradient.to(device).detach()
+    ch_low  = _CHANNEL_LOW.to(device)
+    ch_high = _CHANNEL_HIGH.to(device)
 
     dummy_img = torch.randn_like(true_img.unsqueeze(0)).to(device)
     dummy_img.requires_grad_(True)
@@ -105,10 +128,21 @@ def dlg_reconstruct(
         line_search_fn='strong_wolfe',
     )
 
+    # FIX (see project changelog "open item" — GIA attack strength): plain
+    # gradient-matching loss alone tends to converge to noisy, unstructured
+    # images against pooled CNNs (max-pooling destroys a lot of the gradient
+    # signal DLG relies on). Total-variation regularisation (Geiping et al.,
+    # "Inverting Gradients", 2020) adds a natural-image prior that penalises
+    # high-frequency noise in the reconstruction, which is the standard fix
+    # for exactly this failure mode. Combined with clamping to the valid
+    # pixel range after each step (below), this keeps the optimiser inside
+    # physically-plausible images instead of an unconstrained search.
     def closure():
         optimizer.zero_grad()
         dummy_grad = _compute_gradient_with_grad(m, dummy_img, dummy_label, device)
-        rec_loss   = ((dummy_grad - true_gradient) ** 2).sum()
+        grad_loss  = ((dummy_grad - true_gradient) ** 2).sum()
+        tv_loss    = _total_variation(dummy_img)
+        rec_loss   = grad_loss + tv_weight * tv_loss
         rec_loss.backward(inputs=[dummy_img])
         return rec_loss
 
@@ -119,6 +153,7 @@ def dlg_reconstruct(
     for _ in range(lbfgs_steps):
         optimizer.step(closure)
         with torch.no_grad():
+            dummy_img.clamp_(ch_low, ch_high)
             mse = (
                 (dummy_img.detach() - true_img.unsqueeze(0).to(device)) ** 2
             ).mean()
