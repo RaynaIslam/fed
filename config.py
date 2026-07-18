@@ -50,6 +50,7 @@ DEFAULT_ALPHA = 0.1                   # used in smoke-test / single runs
 FULL_ROUNDS = 200       # rounds per episode (keep this)
 PPO_TOTAL_EPISODES = 10 # train across 10 full episodes
 SMOKE_ROUNDS  = 20                    # fast test
+SMOKE_EPISODES = 2                    # episodes for --smoke runs
 
 # Server-side clean root dataset for FLTrust
 FLTRUST_ROOT_SIZE = 100
@@ -75,6 +76,14 @@ GIA_LR            = 0.1
 # GIA reconstruction batch size — must match a SINGLE forward/backward step,
 # not the multi-epoch local_train() delta. See client.py::compute_single_step_gradient.
 GIA_BATCH_SIZE     = 4
+
+# Total-variation regularisation weight on the reconstructed image (Geiping et
+# al., "Inverting Gradients", 2020) — a standard natural-image prior that
+# improves DLG-style reconstruction quality against pooled CNNs, where raw
+# gradient-matching alone tends to converge to noisy, unstructured images.
+# See gia.py::dlg_reconstruct.
+GIA_TV_WEIGHT      = 1e-3
+
 
 # ─────────────────────────────────────────────
 # STATE SPACE  (13-dimensional)
