@@ -332,6 +332,27 @@ class FLDefenseEnv(gym.Env):
                 gia_client_ids=self._gia_ids,
                 device=DEVICE,
             )
+                  
+        # FIX (see project changelog): client_val_losses ("per-client
+        # validation losses", state feature client_divergence) was silently
+        # built from train_losses — each client's OWN training loss on ITS
+        # OWN data after ITS OWN local SGD steps — instead of the intended
+        # signal: how well the CURRENT (pre-update) global model performs on
+        # each client's data. Those are different things: a client's own
+        # training loss reflects how well it fit its (possibly poisoned)
+        # data after training, not how much that client's data diverges from
+        # the shared model. This also silently never fits a Byzantine
+        # client's actual behavior, since the scale/sign-flip is applied
+        # AFTER local_train()'s loss is already computed. `per_client_val_loss`
+        # already existed for exactly this and was imported but never called.
+        # Must run BEFORE section 6 mutates self._global_model.
+        with _Stage("2b. per_client_val_loss (state: client_divergence)"):
+            client_val_losses = per_client_val_loss(
+                model=self._global_model,
+                client_datasets=self._client_datasets,
+                selected_ids=selected,
+                device=DEVICE,
+            )
 
         # ── 3. Accuracy BEFORE defense (raw FedAvg, for utility_loss) ───
         acc_before_defense = self._prev_acc
@@ -398,8 +419,6 @@ class FLDefenseEnv(gym.Env):
         acc_after_defense = curr_acc
 
         # ── 8. Per-client validation losses (for state) ─────────────────
-        client_val_losses = {cid: train_losses.get(cid, 0.0) 
-                            for cid in selected}
 
         # ── 9. Alpha MLE estimate ────────────────────────────────────────
         alpha_hat = estimate_alpha_mle(self._label_dists)
