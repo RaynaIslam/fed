@@ -1,0 +1,14 @@
+torch==2.2.2
+torchvision==0.17.2
+numpy==1.26.4
+scipy==1.12.0
+scikit-learn==1.4.1.post1
+stable-baselines3==2.3.2
+gymnasium==0.29.1
+matplotlib==3.8.3
+seaborn==0.13.2
+pandas==2.2.1
+tqdm==4.66.2
+hdbscan==0.8.38.post1
+opacus==1.4.0
+Pillow==10.2.0
